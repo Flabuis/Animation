@@ -1,0 +1,467 @@
+<title>Первая печь</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed 3D scene, title top-left, stage timeline pinned to the bottom. Single night look. */
+  :root {
+    --night: #0b0f1a;
+    --ink: #f3e6d4;
+    --ink-dim: #b9a68f;
+    --ember: #ff8a3a;
+    --clay: #b0603a;
+    --track: rgba(243, 230, 212, 0.18);
+    --panel: rgba(11, 15, 26, 0.62);
+    --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+    --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--night); color: var(--ink); font-family: var(--font-body); overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #fade { position: fixed; inset: 0; background: var(--night); opacity: 1; pointer-events: none; }
+
+  .hud {
+    position: fixed; inset: 0; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  .head { display: flex; flex-direction: column; gap: 6px; max-width: 34rem; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ember); }
+  h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 4vw, 36px); line-height: 1.1; text-wrap: balance; }
+
+  .foot {
+    pointer-events: auto; align-self: stretch; max-width: 46rem;
+    display: flex; flex-direction: column; gap: 12px;
+    background: var(--panel); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .caption { display: flex; flex-direction: column; gap: 4px; min-height: 3.4em; }
+  .caption b { font-family: var(--font-display); font-weight: 500; font-size: 17px; }
+  .caption span { color: var(--ink-dim); font-size: 14px; line-height: 1.4; }
+
+  .row { display: flex; align-items: center; gap: 12px; }
+  .steps { flex: 1; min-width: 0; display: grid; grid-template-columns: 1.5fr 2.5fr 3.2fr 2.8fr; gap: 4px; }
+  .step { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .bar { height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ember); }
+  .step small { font-size: 11px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step.on small { color: var(--ink); }
+
+  .time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+  button {
+    font: inherit; font-size: 13px; color: var(--ink); background: transparent;
+    border: 1px solid var(--track); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--ember); }
+  button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  @media (max-width: 480px) { .step small { font-size: 10px; } .caption b { font-size: 15px; } }
+</style>
+
+<div id="stage"></div>
+<div id="fade"></div>
+
+<div class="hud">
+  <div class="head">
+    <div class="eyebrow">10 секунд истории</div>
+    <h1>Как появилась первая печь</h1>
+  </div>
+  <div class="foot">
+    <div class="caption" aria-live="polite">
+      <b id="capTitle">Открытый костёр</b>
+      <span id="capText">Огонь греет, но жар уходит во все стороны.</span>
+    </div>
+    <div class="row">
+      <div class="steps" id="steps">
+        <div class="step"><div class="bar"><i></i></div><small>Костёр</small></div>
+        <div class="step"><div class="bar"><i></i></div><small>Камни</small></div>
+        <div class="step"><div class="bar"><i></i></div><small>Глиняный свод</small></div>
+        <div class="step"><div class="bar"><i></i></div><small>Печь</small></div>
+      </div>
+      <span class="time" id="time">0.0 / 10 с</span>
+      <button id="play" type="button" aria-label="Пауза">Пауза</button>
+      <button id="restart" type="button">Заново</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+
+const DURATION = 10;
+const STAGES = [
+  { from: 0, to: 1.5, title: "Открытый костёр", text: "Огонь греет, но жар уходит во все стороны." },
+  { from: 1.5, to: 4, title: "Каменный круг", text: "Камни держат угли и копят тепло." },
+  { from: 4, to: 7.2, title: "Глиняный свод", text: "Свод из глины ловит жар внутри." },
+  { from: 7.2, to: 10, title: "Первая печь", text: "Дым уходит через верх, а внутри можно печь хлеб." },
+];
+
+// ---------- helpers ----------
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const range = (t, a, b) => clamp01((t - a) / (b - a));
+const smooth = (x) => x * x * (3 - 2 * x);
+const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
+function easeOutBounce(x) {
+  const n = 7.5625, d = 2.75;
+  if (x < 1 / d) return n * x * x;
+  if (x < 2 / d) return n * (x -= 1.5 / d) * x + 0.75;
+  if (x < 2.5 / d) return n * (x -= 2.25 / d) * x + 0.9375;
+  return n * (x -= 2.625 / d) * x + 0.984375;
+}
+let seed = 7;
+const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+// ---------- renderer / scene ----------
+const host = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+host.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0f1a);
+scene.fog = new THREE.Fog(0x0b0f1a, 9, 32);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+
+// lights
+scene.add(new THREE.HemisphereLight(0x4a5a85, 0x2a1a10, 1.1));
+const moon = new THREE.DirectionalLight(0x9fb4ff, 1.1);
+moon.position.set(-4, 8, 6);
+scene.add(moon);
+
+const fireLight = new THREE.PointLight(0xff8a3a, 10, 0, 2);
+fireLight.position.set(0, 0.45, 0);
+fireLight.castShadow = true;
+fireLight.shadow.mapSize.set(512, 512);
+fireLight.shadow.bias = -0.004;
+scene.add(fireLight);
+
+// ground
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(40, 64),
+  new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 1 }),
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// scorched patch under the fire
+const ash = new THREE.Mesh(
+  new THREE.CircleGeometry(0.9, 32),
+  new THREE.MeshStandardMaterial({ color: 0x15100c, roughness: 1 }),
+);
+ash.rotation.x = -Math.PI / 2;
+ash.position.y = 0.005;
+ash.receiveShadow = true;
+scene.add(ash);
+
+// stars
+{
+  const n = 700, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const th = rand() * Math.PI * 2, ph = 0.08 + rand() * 1.4;
+    pos[i * 3] = 70 * Math.cos(ph) * Math.cos(th);
+    pos[i * 3 + 1] = 70 * Math.sin(ph);
+    pos[i * 3 + 2] = 70 * Math.cos(ph) * Math.sin(th);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0xdfe6ff, size: 1.6, sizeAttenuation: false, fog: false });
+  scene.add(new THREE.Points(g, m));
+}
+
+// ---------- fire ----------
+const logMat = new THREE.MeshStandardMaterial({ color: 0x3a2516, roughness: 0.9, emissive: 0x4a1a05, emissiveIntensity: 0.6 });
+for (let i = 0; i < 3; i++) {
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.9, 8), logMat);
+  log.rotation.z = Math.PI / 2 - 0.35;
+  log.rotation.y = (i * Math.PI * 2) / 3;
+  log.position.y = 0.12;
+  log.castShadow = true;
+  const holder = new THREE.Group();
+  holder.add(log);
+  holder.rotation.y = (i * Math.PI * 2) / 3;
+  scene.add(holder);
+}
+
+const flames = [];
+const flameGeo = new THREE.ConeGeometry(1, 1, 14, 1, true);
+flameGeo.translate(0, 0.5, 0);
+const flameSpec = [
+  { c: 0xff5a1a, r: 0.22, h: 0.75, x: 0, z: 0 },
+  { c: 0xff7a22, r: 0.15, h: 0.6, x: 0.12, z: 0.05 },
+  { c: 0xff7a22, r: 0.15, h: 0.55, x: -0.1, z: -0.06 },
+  { c: 0xffb347, r: 0.12, h: 0.5, x: 0.02, z: 0.1 },
+  { c: 0xffe08a, r: 0.08, h: 0.38, x: 0, z: 0 },
+];
+for (const s of flameSpec) {
+  const m = new THREE.Mesh(
+    flameGeo,
+    new THREE.MeshBasicMaterial({ color: s.c, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  m.position.set(s.x, 0.1, s.z);
+  m.scale.set(s.r, s.h, s.r);
+  m.userData = { ...s, ph: rand() * 10 };
+  scene.add(m);
+  flames.push(m);
+}
+
+// sparks
+const SPARKS = 70;
+const sparkPos = new Float32Array(SPARKS * 3);
+const sparkVel = [];
+function resetSpark(i, randomHeight) {
+  const a = rand() * Math.PI * 2, r = rand() * 0.18;
+  sparkPos[i * 3] = Math.cos(a) * r;
+  sparkPos[i * 3 + 1] = randomHeight ? 0.3 + rand() * 2.4 : 0.3;
+  sparkPos[i * 3 + 2] = Math.sin(a) * r;
+  sparkVel[i] = { y: 0.6 + rand() * 0.9, ph: rand() * 6 };
+}
+for (let i = 0; i < SPARKS; i++) resetSpark(i, true);
+const sparkGeo = new THREE.BufferGeometry();
+sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
+const sparks = new THREE.Points(
+  sparkGeo,
+  new THREE.PointsMaterial({ color: 0xffa040, size: 0.045, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
+);
+scene.add(sparks);
+
+// ---------- stones ----------
+const R = 1.2;
+const stones = [];
+const stoneGeo = new THREE.DodecahedronGeometry(0.2, 0);
+const STONE_N = 16;
+for (let i = 0; i < STONE_N; i++) {
+  const th = (i / STONE_N) * Math.PI * 2 + 0.1;
+  const shade = 0x55 + Math.floor(rand() * 0x22);
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(`rgb(${shade},${shade - 4},${shade - 10})`), roughness: 0.95, flatShading: true });
+  const s = new THREE.Mesh(stoneGeo, mat);
+  const sx = 0.9 + rand() * 0.4;
+  s.scale.set(sx, 0.6 + rand() * 0.25, 0.9 + rand() * 0.3);
+  s.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+  s.castShadow = s.receiveShadow = true;
+  s.userData = {
+    x: Math.sin(th) * R, z: Math.cos(th) * R,
+    start: 1.5 + (i / STONE_N) * 2.0 + rand() * 0.15,
+    spin: (rand() - 0.5) * 4,
+    rot: s.rotation.clone(),
+  };
+  scene.add(s);
+  stones.push(s);
+}
+
+// ---------- clay dome ----------
+const clayWet = new THREE.Color(0x6e4630);
+const clayFired = new THREE.Color(0xb5643a);
+const clayMats = [0, 1, 2].map(() => new THREE.MeshStandardMaterial({ color: clayWet.clone(), roughness: 0.92 }));
+const tints = [0.92, 1.0, 1.08];
+const bricks = [];
+const RINGS = 8, BRICK_H = 0.2, DOME_R = 1.25;
+const brickGeo = new THREE.BoxGeometry(1, 1, 1);
+for (let i = 0; i < RINGS; i++) {
+  const phi = ((i + 0.5) * BRICK_H) / DOME_R;
+  const ringR = DOME_R * Math.cos(phi);
+  const y = DOME_R * Math.sin(phi);
+  const count = Math.max(6, Math.floor((Math.PI * 2 * ringR) / 0.3));
+  const w = (Math.PI * 2 * ringR) / count;
+  for (let k = 0; k < count; k++) {
+    let th = (k / count) * Math.PI * 2 + (i % 2) * (Math.PI / count);
+    th = Math.atan2(Math.sin(th), Math.cos(th));
+    if (i < 3 && Math.abs(th) < 0.5) continue; // front opening
+    const b = new THREE.Mesh(brickGeo, clayMats[(i + k) % 3]);
+    b.position.set(Math.sin(th) * ringR, y, Math.cos(th) * ringR);
+    b.lookAt(0, 0, 0);
+    b.userData = {
+      final: b.position.clone(),
+      size: new THREE.Vector3(w * 1.02, BRICK_H * 1.05, 0.2),
+      start: 4 + i * 0.36 + ((th + Math.PI) / (Math.PI * 2)) * 0.3,
+    };
+    b.castShadow = b.receiveShadow = true;
+    scene.add(b);
+    bricks.push(b);
+  }
+}
+
+// ---------- smoke ----------
+function makeSmokeTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)");
+  grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const smokeTex = makeSmokeTexture();
+const smoke = [];
+for (let i = 0; i < 22; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x77726c, transparent: true, opacity: 0, depthWrite: false }));
+  sp.userData = { off: i / 22, drift: (rand() - 0.5) * 1.4 };
+  scene.add(sp);
+  smoke.push(sp);
+}
+
+// ---------- bread ----------
+const breadMat = new THREE.MeshStandardMaterial({ color: 0xe8d3a8, roughness: 0.8 });
+const bread = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.05, 24), breadMat);
+bread.castShadow = true;
+scene.add(bread);
+const breadRaw = new THREE.Color(0xe8d3a8), breadBaked = new THREE.Color(0xb86a28);
+
+// ---------- update ----------
+function updateScene(t, now, dt) {
+  // fire flicker
+  const flick = 0.85 + 0.15 * Math.sin(now * 13) * Math.sin(now * 7.3 + 1) + 0.08 * Math.sin(now * 23);
+  for (const f of flames) {
+    const d = f.userData;
+    const k = 1 + 0.25 * Math.sin(now * 9 + d.ph) + 0.1 * Math.sin(now * 17 + d.ph * 2);
+    f.scale.set(d.r * (1 - 0.1 * (k - 1)), d.h * k, d.r);
+    f.position.x = d.x + 0.02 * Math.sin(now * 6 + d.ph);
+  }
+  const enclosed = range(t, 5.5, 7.2);
+  fireLight.intensity = (9 + 3 * enclosed) * flick;
+  logMat.emissiveIntensity = 0.5 + 0.4 * flick;
+
+  // sparks
+  const sp = sparkGeo.attributes.position.array;
+  for (let i = 0; i < SPARKS; i++) {
+    sp[i * 3 + 1] += sparkVel[i].y * dt;
+    sp[i * 3] += Math.sin(now * 3 + sparkVel[i].ph) * 0.002;
+    if (sp[i * 3 + 1] > 2.8) resetSpark(i, false);
+  }
+  sparkGeo.attributes.position.needsUpdate = true;
+
+  // stones
+  for (const s of stones) {
+    const d = s.userData;
+    const p = range(t, d.start, d.start + 0.7);
+    s.visible = t >= d.start;
+    s.position.set(d.x, 0.1 + (1 - easeOutBounce(p)) * 4, d.z);
+    s.rotation.set(d.rot.x + (1 - p) * d.spin, d.rot.y, d.rot.z + (1 - p) * d.spin);
+  }
+
+  // dome bricks
+  const fire = smooth(range(t, 7.4, 9.2));
+  for (let i = 0; i < 3; i++) {
+    clayMats[i].color.copy(clayWet).lerp(clayFired, fire).multiplyScalar(tints[i]);
+  }
+  for (const b of bricks) {
+    const d = b.userData;
+    const p = easeOutCubic(range(t, d.start, d.start + 0.28));
+    b.visible = p > 0;
+    b.scale.copy(d.size).multiplyScalar(Math.max(p, 0.001));
+    b.position.copy(d.final);
+    b.position.y += (1 - p) * 0.35;
+  }
+
+  // smoke from the top hole
+  const smokeOn = range(t, 7.0, 7.8) * (1 - range(t, 9.7, 10));
+  for (const s of smoke) {
+    const life = (now * 0.35 + s.userData.off) % 1;
+    s.position.set(
+      s.userData.drift * life + 0.4 * life * life,
+      1.3 + life * 2.6,
+      0.15 * Math.sin(life * 6 + s.userData.off * 20),
+    );
+    const sc = 0.4 + life * 1.9;
+    s.scale.set(sc, sc, 1);
+    s.material.opacity = smokeOn * 0.13 * Math.sin(Math.PI * life);
+  }
+
+  // bread slides in, then bakes
+  const slide = smooth(range(t, 8.0, 8.9));
+  bread.visible = t > 7.9;
+  bread.position.set(0, 0.06 + 0.15 * (1 - slide), 2.2 - 1.55 * slide);
+  breadMat.color.copy(breadRaw).lerp(breadBaked, smooth(range(t, 8.9, 9.9)));
+}
+
+function updateCamera(t) {
+  const k = smooth(t / DURATION);
+  const portrait = camera.aspect < 1 ? 1.55 : 1;
+  const a = THREE.MathUtils.lerp(-0.75, 0.35, k);
+  const dist = THREE.MathUtils.lerp(6.0, 4.6, k) * portrait;
+  const h = THREE.MathUtils.lerp(3.0, 1.7, k);
+  camera.position.set(Math.sin(a) * dist, h, Math.cos(a) * dist);
+  camera.lookAt(0, THREE.MathUtils.lerp(0.05, 0.3, k), 0);
+}
+
+// ---------- HUD ----------
+const capTitle = document.getElementById("capTitle");
+const capText = document.getElementById("capText");
+const timeEl = document.getElementById("time");
+const stepEls = [...document.querySelectorAll(".step")];
+const fadeEl = document.getElementById("fade");
+let lastStage = -1;
+function updateHud(t) {
+  const idx = STAGES.findIndex((s) => t >= s.from && t < s.to);
+  STAGES.forEach((s, i) => {
+    stepEls[i].querySelector("i").style.width = `${range(t, s.from, s.to) * 100}%`;
+    stepEls[i].classList.toggle("on", i === idx);
+  });
+  if (idx !== lastStage && idx >= 0) {
+    lastStage = idx;
+    capTitle.textContent = STAGES[idx].title;
+    capText.textContent = STAGES[idx].text;
+  }
+  timeEl.textContent = `${t.toFixed(1)} / 10 с`;
+  fadeEl.style.opacity = String(Math.max(1 - range(t, 0, 0.5), range(t, 9.75, 10)));
+}
+
+// ---------- loop ----------
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let playing = !reduceMotion;
+let playTime = reduceMotion ? 9.4 : 0;
+let now = 0;
+const playBtn = document.getElementById("play");
+function syncPlayBtn() {
+  playBtn.textContent = playing ? "Пауза" : "Смотреть";
+  playBtn.setAttribute("aria-label", playing ? "Пауза" : "Смотреть");
+}
+syncPlayBtn();
+playBtn.addEventListener("click", () => { playing = !playing; syncPlayBtn(); });
+document.getElementById("restart").addEventListener("click", () => { playTime = 0; playing = true; syncPlayBtn(); });
+window.__seek = (s) => { playTime = s; playing = false; syncPlayBtn(); };
+
+const timer = new THREE.Timer();
+timer.connect(document);
+renderer.setAnimationLoop(() => {
+  timer.update();
+  const dt = Math.min(timer.getDelta(), 0.05);
+  now += dt;
+  if (playing) playTime = (playTime + dt) % DURATION;
+  const t = playTime;
+  updateScene(t, now, dt);
+  updateCamera(t);
+  updateHud(t);
+  renderer.render(scene, camera);
+});
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+camera.aspect = window.innerWidth / window.innerHeight;
+camera.updateProjectionMatrix();
+</script>
